@@ -7,14 +7,30 @@ import (
 
 func main() {
 	keywords := []string{
-		"say",
-		"she",
-		"shr",
 		"he",
-		"her",
+		"she",
+		"his",
+		"hers",
+	}
+	text := "ahishers"
+	ans := map[string][]int{
+		"his":  {1},
+		"she":  {3},
+		"he":   {4},
+		"hers": {4},
 	}
 	ac := ahocorasick.NewACAutomaton(keywords)
-	ac.PrintTrie()
-	ans := ac.Search("sherhsay")
-	fmt.Println(ans)
+	fmt.Println(ac)
+	res := ac.Search(text)
+	for k, v := range res {
+		if len(v) != len(ans[k]) {
+			panic("length not equal")
+		}
+		for i := range v {
+			if v[i] != ans[k][i] {
+				panic("value not equal")
+			}
+		}
+	}
+	fmt.Println("ok")
 }

@@ -1,149 +1,137 @@
 package ahocorasick
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
-type Node struct {
+type TrieNode struct {
 	ID       int
 	Val      byte
-	Parent   *Node
-	Children map[byte]*Node
-	IsEnd    bool
-	Count    []int
-	Fail     *Node
+	Children map[byte]*TrieNode
+	Output   []int
+	Fail     *TrieNode
 }
 
-func (n *Node) String() string {
+func (n *TrieNode) String() string {
 	keys := make([]byte, 0)
 	for k := range n.Children {
 		keys = append(keys, k)
 	}
-	if n.IsEnd {
-		return fmt.Sprintf("[<%d> %c, Count:%v, Parent: [<%d> %c]]", n.ID, n.Val, n.Count, n.Parent.ID, n.Parent.Val)
+	if len(keys) == 0 {
+		return fmt.Sprintf("[<%d> %c, Output:%v]", n.ID, n.Val, n.Output)
 	}
-	return fmt.Sprintf("[<%d> %c -> %c, Parent: [<%d> %c]]", n.ID, n.Val, keys, n.Parent.ID, n.Parent.Val)
+	return fmt.Sprintf("[<%d> %c -> %c]", n.ID, n.Val, keys)
+}
+
+var TrieNodeID = 0
+
+func NewTrieNode(val byte) *TrieNode {
+	TrieNodeID++
+	return &TrieNode{
+		ID:       TrieNodeID,
+		Val:      val,
+		Children: make(map[byte]*TrieNode),
+	}
 }
 
 type ACAutomaton struct {
-	Root *Node
+	Root *TrieNode
 }
 
-func NewACAutomaton(keywords []string) *ACAutomaton {
-	acAutomaton := &ACAutomaton{
-		Root: &Node{
-			Val:      '@',
-			Children: make(map[byte]*Node),
-		},
-	}
-	acAutomaton.buildTrie(keywords)
-	acAutomaton.buildFail()
-	return acAutomaton
-}
-
-func (ac *ACAutomaton) buildTrie(keywords []string) {
-	id := 1
-	for _, keyword := range keywords {
-		cur := ac.Root
-		for i := 0; i < len(keyword); i++ {
-			c := keyword[i]
-			if cur.Children[c] == nil {
-				cur.Children[c] = &Node{
-					ID:       id,
-					Val:      c,
-					Parent:   cur,
-					Children: make(map[byte]*Node),
-				}
-				id++
-			}
-			if i == len(keyword)-1 {
-				cur.Children[c].IsEnd = true
-				cur.Children[c].Count = append(cur.Children[c].Count, i+1)
-			}
-			cur = cur.Children[c]
-		}
-	}
-}
-
-func (ac ACAutomaton) PrintTrie() {
-	q := make([]*Node, 0)
+func (ac ACAutomaton) String() string {
+	var sb strings.Builder
+	line := "====================\n"
+	sb.WriteString(line)
+	q := make([]*TrieNode, 0)
 	q = append(q, ac.Root)
 	for len(q) > 0 {
 		size := len(q)
 		for i := 0; i < size; i++ {
 			cur := q[0]
 			q = q[1:]
-			fmt.Printf("%s\n", cur)
+			sb.WriteString(cur.String() + "\n")
 			for _, v := range cur.Children {
 				q = append(q, v)
 			}
 		}
 	}
+	sb.WriteString(line)
+	return sb.String()
 }
 
-func (ac *ACAutomaton) buildFail() {
-	// 1.root的fail指向自己
-	ac.Root.Fail = ac.Root
-	q := make([]*Node, 0)
+func NewACAutomaton(keywords []string) *ACAutomaton {
+	acAutomaton := &ACAutomaton{
+		Root: NewTrieNode('@'),
+	}
+	acAutomaton.buildTrie(keywords)
+	acAutomaton.buildFailPointers()
+	return acAutomaton
+}
+
+func (ac *ACAutomaton) buildTrie(words []string) {
+	for _, word := range words {
+		cur := ac.Root
+		for i := 0; i < len(word); i++ {
+			ch := word[i]
+			if _, ok := cur.Children[ch]; !ok {
+				cur.Children[ch] = NewTrieNode(ch)
+			}
+			cur = cur.Children[ch]
+		}
+		cur.Output = append(cur.Output, len(word))
+	}
+}
+
+func (ac *ACAutomaton) buildFailPointers() {
+	q := make([]*TrieNode, 0)
 	for _, v := range ac.Root.Children {
+		v.Fail = ac.Root
 		q = append(q, v)
 	}
 	for len(q) > 0 {
-		size := len(q)
-		for i := 0; i < size; i++ {
-			cur := q[0]
-			q = q[1:]
-			for _, v := range cur.Children {
-				q = append(q, v)
-			}
-			// 2.当前节点的fail指向root
-			cur.Fail = ac.Root
-			for p := cur.Parent.Fail; ; p = p.Fail {
-				flag := false
-				for k, v := range p.Children {
-					// 查找父节点fail指向的节点p
-					// 若p的子节点中存在与当前节点相同的字符
-					// 则当前节点的fail指向该子节点
-					// 若p的子节点中不存在与当前节点相同的字符
-					// 则继续寻找p的fail指向的节点，直至root节点
-					if cur != v && cur.Val == v.Val {
-						cur.Fail = p.Children[k]
-						if cur.Fail.IsEnd {
-							cur.IsEnd = true // TODO:这里存疑
-							cur.Count = append(cur.Count, cur.Fail.Count...)
-							flag = true
-						}
-						break
-					}
-				}
-				if flag || p == ac.Root {
+		cur := q[0]
+		q = q[1:]
+		for c, child := range cur.Children {
+			failNode := cur.Fail
+			for failNode != nil {
+				if next, ok := failNode.Children[c]; ok {
+					child.Fail = next
 					break
 				}
+				failNode = failNode.Fail
 			}
+			if failNode == nil {
+				child.Fail = ac.Root
+			}
+			child.Output = append(child.Output, child.Fail.Output...)
+			q = append(q, child)
 		}
 	}
 }
 
-func (ac *ACAutomaton) Search(text string) []string {
-	ans := make([]string, 0)
+func (ac *ACAutomaton) Search(text string) map[string][]int {
+	res := make(map[string][]int, 0)
+	cur := ac.Root
 
-	idx := 0
-
-	for idx < len(text) {
-		cur := ac.Root
-		for ; idx < len(text); idx++ {
-			if cur.Children[text[idx]] == nil {
-				cur = cur.Fail
-				if cur == ac.Root {
-					break
-				}
-			}
-			cur = cur.Children[text[idx]]
-			if cur.IsEnd {
-				for _, k := range cur.Count {
-					ans = append(ans, string(text[idx+1-k:idx+1]))
-				}
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		for cur != nil && cur.Children[ch] == nil {
+			cur = cur.Fail
+		}
+		if cur == nil {
+			cur = ac.Root
+			continue
+		}
+		// cur != nil
+		cur = cur.Children[ch]
+		if len(cur.Output) > 0 {
+			for _, v := range cur.Output {
+				word := text[i-v+1 : i+1]
+				res[word] = append(res[word], i-v+1)
 			}
 		}
 	}
 
-	return ans
+	return res
 }
